@@ -2,7 +2,7 @@ diff --git a/widget/uikit/TextInputHandler.h b/widget/uikit/TextInputHandler.h
 index 5073da48f88c..0ebbbfe54c2b 100644
 --- a/widget/uikit/TextInputHandler.h
 +++ b/widget/uikit/TextInputHandler.h
-@@ -8,13 +8,20 @@
+@@ -8,13 +8,22 @@
  #import <UIKit/UITextInput.h>
  
  #include "mozilla/EventForwards.h"
@@ -21,9 +21,11 @@ index 5073da48f88c..0ebbbfe54c2b 100644
  namespace mozilla::widget {
 +class GeckoKeyboardSupport;
  class TextEventDispatcher;
++
++void ReynardKeyboardLog(const char* aFormat, ...);
  
  // This is the temporary input class. When implementing UITextInpt protocol, we
-@@ -36,29 +43,106 @@ class TextInputHandler final : public TextEventDispatcherListener {
+@@ -36,29 +45,107 @@ class TextInputHandler final : public TextEventDispatcherListener {
                              WidgetKeyboardEvent& aKeyboardEvent,
                              uint32_t aIndexOfKeypress, void* aData) override;
  
@@ -36,6 +38,7 @@ index 5073da48f88c..0ebbbfe54c2b 100644
 +  void ReleasePhysicalKeys();
 +  void PostHandleKeyEvent(WidgetKeyboardEvent* aEvent);
 +  bool HandlePhysicalDeleteBackward();
++  bool DeleteBackwardByReplacingRange();
 +  bool GetEditCommands(const WidgetKeyboardEvent& aEvent,
 +                       nsTArray<CommandInt>& aCommands);
 +

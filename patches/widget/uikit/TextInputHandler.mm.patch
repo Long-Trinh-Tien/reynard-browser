@@ -2,11 +2,13 @@ diff --git a/widget/uikit/TextInputHandler.mm b/widget/uikit/TextInputHandler.mm
 index e8f05ad59f6f..275b91c41e83 100644
 --- a/widget/uikit/TextInputHandler.mm
 +++ b/widget/uikit/TextInputHandler.mm
-@@ -2,16 +2,22 @@
+@@ -2,16 +2,24 @@
   * License, v. 2.0. If a copy of the MPL was not distributed with this
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
  
 +#include <algorithm>
++#include <cstdarg>
++#include <cstdio>
 +
  #include "TextInputHandler.h"
  
@@ -25,7 +27,7 @@ index e8f05ad59f6f..275b91c41e83 100644
  #include "mozilla/WidgetUtils.h"
  #include "nsIWidget.h"
  #include "nsObjCExceptions.h"
-@@ -20,21 +26,508 @@
+@@ -20,21 +28,532 @@
  
  mozilla::LazyLogModule gIMELog("TextInputHandler");
  
@@ -57,6 +59,30 @@ index e8f05ad59f6f..275b91c41e83 100644
 +
  namespace mozilla::widget {
  
++void ReynardKeyboardLog(const char* aFormat, ...) {
++  static FILE* sLogFile = nullptr;
++  static bool sInitialized = false;
++  if (!sInitialized) {
++    sInitialized = true;
++    NSString* directory = [NSSearchPathForDirectoriesInDomains(
++        NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
++    if (directory.length) {
++      NSString* path =
++          [directory stringByAppendingPathComponent:@"reynard-keyboard.log"];
++      sLogFile = fopen(path.UTF8String, "w");
++    }
++  }
++  if (!sLogFile) {
++    return;
++  }
++  va_list arguments;
++  va_start(arguments, aFormat);
++  vfprintf(sLogFile, aFormat, arguments);
++  va_end(arguments);
++  fputc('\n', sLogFile);
++  fflush(sLogFile);
++}
++
 +enum : unichar {
 +  kEnterCharacter = 0x03,
 +  kBackspaceCharacter = 0x08,
@@ -536,7 +562,7 @@ index e8f05ad59f6f..275b91c41e83 100644
  }
  
  void TextInputHandler::OnRemovedFrom(
-@@ -43,7 +536,38 @@
+@@ -43,7 +562,38 @@
  void TextInputHandler::WillDispatchKeyboardEvent(
      TextEventDispatcher* aTextEventDispatcher,
      WidgetKeyboardEvent& aKeyboardEvent, uint32_t aIndexOfKeypress,
@@ -576,7 +602,7 @@ index e8f05ad59f6f..275b91c41e83 100644
  
  bool TextInputHandler::InsertText(NSString* aText) {
    nsString str;
-@@ -57,6 +581,53 @@
+@@ -57,6 +607,53 @@
      return false;
    }
  
@@ -630,7 +656,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    if (str.Length() == 1) {
      char16_t charCode = str[0];
      if (charCode == 0x0a) {
-@@ -71,24 +642,154 @@
+@@ -71,24 +668,154 @@
      }
    }
  
@@ -793,7 +819,7 @@ index e8f05ad59f6f..275b91c41e83 100644
  }
  
  bool TextInputHandler::HandleCommand(Command aCommand) {
-@@ -100,32 +801,59 @@
+@@ -100,32 +827,140 @@
      return false;
    }
  
@@ -826,14 +852,37 @@ index e8f05ad59f6f..275b91c41e83 100644
 +      request.mQuery = NativeTextInputQuery::ToggleUnderline;
 +      break;
 +    case Command::DeleteCharBackward: {
-+      NSRange selection;
-+      if (SelectedRange(selection) && selection.length) {
++      uint32_t lengthBefore = 0;
++      TextLength(lengthBefore);
++      NSRange selection = NSMakeRange(NSNotFound, 0);
++      const bool hasSelection = SelectedRange(selection);
++      ReynardKeyboardLog(
++          "HandleCommandDelete: len=%u hasSelection=%d loc=%lu len=%lu",
++          lengthBefore, int(hasSelection), (unsigned long)selection.location,
++          (unsigned long)selection.length);
++      if (hasSelection && selection.length) {
 +        WidgetContentCommandEvent event(true, eContentCommandDelete, mWidget);
 +        mWidget->DispatchWindowEvent(event);
 +        SynchronizeTextInputState();
-+        NSRange after; if (SelectedRange(after) && !after.length) return true;
++        uint32_t lengthAfterCommand = 0;
++        TextLength(lengthAfterCommand);
++        ReynardKeyboardLog(
++            "HandleCommandDelete: contentCommand ok=%d len %u -> %u",
++            int(event.mSucceeded), lengthBefore, lengthAfterCommand);
++        if (lengthAfterCommand < lengthBefore) {
++          return true;
++        }
 +      }
-+      return EmulateKeyboardEvent(NS_VK_BACK, KEY_NAME_INDEX_Backspace, 0);
++      const bool emulated =
++          EmulateKeyboardEvent(NS_VK_BACK, KEY_NAME_INDEX_Backspace, 0);
++      uint32_t lengthAfterEmulation = 0;
++      TextLength(lengthAfterEmulation);
++      ReynardKeyboardLog("HandleCommandDelete: emulated=%d len %u -> %u",
++                         int(emulated), lengthBefore, lengthAfterEmulation);
++      if (lengthAfterEmulation < lengthBefore) {
++        return true;
++      }
++      return DeleteBackwardByReplacingRange();
 +    }
 +    default:
 +      return false;
@@ -853,7 +902,17 @@ index e8f05ad59f6f..275b91c41e83 100644
    }
 -  if (Destroyed() || status == nsEventStatus_eConsumeNoDefault) {
 +  if (!HasMarkedText()) {
-+    NSRange s; if (SelectedRange(s) && s.length) { WidgetContentCommandEvent e(true, eContentCommandDelete, mWidget); mWidget->DispatchWindowEvent(e); } else HandleCommand(Command::DeleteCharBackward);
++    NSRange selection = NSMakeRange(NSNotFound, 0);
++    const bool hasSelection = SelectedRange(selection);
++    ReynardKeyboardLog("PhysicalDeleteBackward: hasSelection=%d loc=%lu len=%lu",
++                       int(hasSelection), (unsigned long)selection.location,
++                       (unsigned long)selection.length);
++    if (hasSelection && selection.length) {
++      WidgetContentCommandEvent event(true, eContentCommandDelete, mWidget);
++      mWidget->DispatchWindowEvent(event);
++    } else {
++      HandleCommand(Command::DeleteCharBackward);
++    }
 +    SynchronizeTextInputState();
      return true;
    }
@@ -869,8 +928,56 @@ index e8f05ad59f6f..275b91c41e83 100644
 +  return false;
  }
  
++bool TextInputHandler::DeleteBackwardByReplacingRange() {
++  RefPtr<TextInputHandler> self(this);
++  const NativeTextInputReply* state = NativeTextInputState();
++  if (!state || state->mSelectionStart == UINT32_MAX) {
++    ReynardKeyboardLog("ReplaceRangeDelete: no native text state");
++    return false;
++  }
++
++  NSString* text = XPCOMStringToNSString(state->mText);
++  const NSUInteger start = state->mSelectionStart;
++  const NSUInteger length = state->mSelectionLength;
++  if (length) {
++    const uint32_t lengthBefore = state->mText.Length();
++    const bool replaced = ReplaceRange(NSMakeRange(start, length), @"");
++    uint32_t lengthAfter = 0;
++    TextLength(lengthAfter);
++    ReynardKeyboardLog(
++        "ReplaceRangeDelete: selection loc=%lu len=%lu ok=%d %u -> %u",
++        (unsigned long)start, (unsigned long)length, int(replaced), lengthBefore,
++        lengthAfter);
++    return replaced && lengthAfter < lengthBefore;
++  }
++
++  if (start == 0 || start > text.length) {
++    ReynardKeyboardLog("ReplaceRangeDelete: caret at start");
++    return false;
++  }
++
++  const NSRange cluster =
++      [text rangeOfComposedCharacterSequenceAtIndex:start - 1];
++  if (NSMaxRange(cluster) != start) {
++    ReynardKeyboardLog("ReplaceRangeDelete: cluster mismatch loc=%lu len=%lu",
++                       (unsigned long)cluster.location,
++                       (unsigned long)cluster.length);
++    return false;
++  }
++
++  const uint32_t lengthBefore = state->mText.Length();
++  const bool replaced = ReplaceRange(cluster, @"");
++  uint32_t lengthAfter = 0;
++  TextLength(lengthAfter);
++  ReynardKeyboardLog(
++      "ReplaceRangeDelete: cluster loc=%lu len=%lu ok=%d %u -> %u",
++      (unsigned long)cluster.location, (unsigned long)cluster.length,
++      int(replaced), lengthBefore, lengthAfter);
++  return replaced && lengthAfter < lengthBefore;
++}
++
  static uint32_t ComputeKeyModifiers(uint32_t aCharCode) {
-@@ -136,7 +864,8 @@ static uint32_t ComputeKeyModifiers(uint32_t aCharCode) {
+@@ -136,7 +971,8 @@ static uint32_t ComputeKeyModifiers(uint32_t aCharCode) {
  }
  
  static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
@@ -880,7 +987,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    aEvent.mKeyCode = aKeyCode;
    aEvent.mIsRepeat = false;
    aEvent.mKeyNameIndex = aKeyNameIndex;
-@@ -146,7 +875,7 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -146,7 +982,7 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
    if (aEvent.mKeyNameIndex == KEY_NAME_INDEX_USE_STRING) {
      aEvent.mKeyValue = aCharCode;
    }
@@ -889,7 +996,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    aEvent.mLocation = eKeyLocationStandard;
    aEvent.mTimeStamp = TimeStamp::Now();
  }
-@@ -154,12 +883,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -154,12 +990,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
  bool TextInputHandler::DispatchKeyDownEvent(uint32_t aKeyCode,
                                              KeyNameIndex aKeyNameIndex,
                                              char16_t aCharCode,
@@ -904,7 +1011,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    nsresult rv = mDispatcher->BeginNativeInputTransaction();
    if (NS_FAILED(rv)) {
      NS_WARNING("BeginNativeInputTransaction is failed");
-@@ -171,12 +901,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -171,12 +1008,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
  bool TextInputHandler::DispatchKeyUpEvent(uint32_t aKeyCode,
                                            KeyNameIndex aKeyNameIndex,
                                            char16_t aCharCode,
@@ -919,7 +1026,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    nsresult rv = mDispatcher->BeginNativeInputTransaction();
    if (NS_FAILED(rv)) {
      NS_WARNING("BeginNativeInputTransaction is failed");
-@@ -188,12 +919,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -188,12 +1026,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
  bool TextInputHandler::DispatchKeyPressEvent(uint32_t aKeyCode,
                                               KeyNameIndex aKeyNameIndex,
                                               char16_t aCharCode,
@@ -934,7 +1041,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    nsresult rv = mDispatcher->BeginNativeInputTransaction();
    if (NS_FAILED(rv)) {
      NS_WARNING("BeginNativeInputTransaction is failed");
-@@ -205,34 +937,58 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -205,34 +1044,58 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
  bool TextInputHandler::EmulateKeyboardEvent(uint32_t aKeyCode,
                                              KeyNameIndex aKeyNameIndex,
                                              char16_t aCharCode) {

@@ -3,7 +3,7 @@ new file mode 100644
 index 000000000000..dc4f34ab1b15
 --- /dev/null
 +++ b/widget/uikit/GeckoEditableSupport.mm
-@@ -0,0 +1,4215 @@
+@@ -0,0 +0,4225 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -2786,7 +2786,13 @@ index 000000000000..dc4f34ab1b15
 +
 +- (void)deleteBackward {
 +  RefPtr<widget::TextInputHandler> handler = [self textHandler];
++  const NSRange initialSelection = [self selectedRange];
++  widget::ReynardKeyboardLog(
++      "deleteBackward: entered loc=%lu len=%lu handler=%d",
++      (unsigned long)initialSelection.location,
++      (unsigned long)initialSelection.length, int(handler != nullptr));
 +  if (!handler || handler->HandlePhysicalDeleteBackward()) {
++    widget::ReynardKeyboardLog("deleteBackward: handled as physical key");
 +    return;
 +  }
 +
@@ -2818,7 +2824,11 @@ index 000000000000..dc4f34ab1b15
 +    return;
 +  }
 +
-+  if (handler->HandleCommand(Command::DeleteCharBackward)) {
++  const bool commandHandled =
++      handler->HandleCommand(Command::DeleteCharBackward);
++  widget::ReynardKeyboardLog("deleteBackward: HandleCommand=%d",
++                             int(commandHandled));
++  if (commandHandled) {
 +    handler->SynchronizeTextInputState();
 +    [self scrollSelectionToVisible:NO];
 +    [self refreshSelectionUI];
