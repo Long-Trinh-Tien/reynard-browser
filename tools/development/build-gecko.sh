@@ -48,7 +48,7 @@ fi
 	echo "ac_add_options --enable-optimize"
 	echo "ac_add_options --enable-release"
 	echo "ac_add_options --enable-rust-simd"
-	echo "ac_add_options --enable-lto"
+	# LTO is disabled: the final XUL link pushes the job past the 6h limit.
 	echo "ac_add_options --disable-debug"
 	echo "ac_add_options --disable-tests"
 	echo "ac_add_options --enable-bootstrap"
