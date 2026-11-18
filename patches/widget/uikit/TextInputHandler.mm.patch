@@ -852,7 +852,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    }
 -  if (Destroyed() || status == nsEventStatus_eConsumeNoDefault) {
 +  if (!HasMarkedText()) {
-+    HandleCommand(Command::DeleteCharBackward);
++    NSRange s; if (SelectedRange(s) && s.length) { WidgetContentCommandEvent e(true, eContentCommandDelete, mWidget); mWidget->DispatchWindowEvent(&e); } else HandleCommand(Command::DeleteCharBackward);
 +    SynchronizeTextInputState();
      return true;
    }
