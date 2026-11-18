@@ -830,7 +830,8 @@ index e8f05ad59f6f..275b91c41e83 100644
 +      if (SelectedRange(selection) && selection.length) {
 +        WidgetContentCommandEvent event(true, eContentCommandDelete, mWidget);
 +        mWidget->DispatchWindowEvent(event);
-+        return event.mSucceeded && !Destroyed();
++        SynchronizeTextInputState();
++        NSRange after; if (SelectedRange(after) && !after.length) return true;
 +      }
 +      return EmulateKeyboardEvent(NS_VK_BACK, KEY_NAME_INDEX_Backspace, 0);
 +    }
