@@ -793,7 +793,7 @@ index e8f05ad59f6f..275b91c41e83 100644
  }
  
  bool TextInputHandler::HandleCommand(Command aCommand) {
-@@ -100,32 +801,58 @@
+@@ -100,32 +801,72 @@
      return false;
    }
  
@@ -828,9 +828,17 @@ index e8f05ad59f6f..275b91c41e83 100644
 +    case Command::DeleteCharBackward: {
 +      NSRange selection;
 +      if (SelectedRange(selection) && selection.length) {
++        // UIKit prepares a deletion selection before calling deleteBackward.
++        // A synthetic key event does not consume it in web editors, so delete
++        // the selection directly and fall back to the key event only when the
++        // editor ignored the command.
 +        WidgetContentCommandEvent event(true, eContentCommandDelete, mWidget);
 +        mWidget->DispatchWindowEvent(event);
-+        return event.mSucceeded && !Destroyed();
++        SynchronizeTextInputState();
++        NSRange remaining;
++        if (SelectedRange(remaining) && !remaining.length) {
++          return true;
++        }
 +      }
 +      return EmulateKeyboardEvent(NS_VK_BACK, KEY_NAME_INDEX_Backspace, 0);
 +    }
@@ -852,7 +860,13 @@ index e8f05ad59f6f..275b91c41e83 100644
    }
 -  if (Destroyed() || status == nsEventStatus_eConsumeNoDefault) {
 +  if (!HasMarkedText()) {
-+    HandleCommand(Command::DeleteCharBackward);
++    NSRange selection;
++    if (SelectedRange(selection) && selection.length) {
++      WidgetContentCommandEvent event(true, eContentCommandDelete, mWidget);
++      mWidget->DispatchWindowEvent(event);
++    } else {
++      HandleCommand(Command::DeleteCharBackward);
++    }
 +    SynchronizeTextInputState();
      return true;
    }
@@ -869,7 +883,7 @@ index e8f05ad59f6f..275b91c41e83 100644
  }
  
  static uint32_t ComputeKeyModifiers(uint32_t aCharCode) {
-@@ -136,7 +863,8 @@ static uint32_t ComputeKeyModifiers(uint32_t aCharCode) {
+@@ -136,7 +877,8 @@ static uint32_t ComputeKeyModifiers(uint32_t aCharCode) {
  }
  
  static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
@@ -879,7 +893,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    aEvent.mKeyCode = aKeyCode;
    aEvent.mIsRepeat = false;
    aEvent.mKeyNameIndex = aKeyNameIndex;
-@@ -146,7 +874,7 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -146,7 +888,7 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
    if (aEvent.mKeyNameIndex == KEY_NAME_INDEX_USE_STRING) {
      aEvent.mKeyValue = aCharCode;
    }
@@ -888,7 +902,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    aEvent.mLocation = eKeyLocationStandard;
    aEvent.mTimeStamp = TimeStamp::Now();
  }
-@@ -154,12 +882,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -154,12 +896,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
  bool TextInputHandler::DispatchKeyDownEvent(uint32_t aKeyCode,
                                              KeyNameIndex aKeyNameIndex,
                                              char16_t aCharCode,
@@ -903,7 +917,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    nsresult rv = mDispatcher->BeginNativeInputTransaction();
    if (NS_FAILED(rv)) {
      NS_WARNING("BeginNativeInputTransaction is failed");
-@@ -171,12 +900,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -171,12 +914,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
  bool TextInputHandler::DispatchKeyUpEvent(uint32_t aKeyCode,
                                            KeyNameIndex aKeyNameIndex,
                                            char16_t aCharCode,
@@ -918,7 +932,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    nsresult rv = mDispatcher->BeginNativeInputTransaction();
    if (NS_FAILED(rv)) {
      NS_WARNING("BeginNativeInputTransaction is failed");
-@@ -188,12 +918,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -188,12 +932,13 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
  bool TextInputHandler::DispatchKeyPressEvent(uint32_t aKeyCode,
                                               KeyNameIndex aKeyNameIndex,
                                               char16_t aCharCode,
@@ -933,7 +947,7 @@ index e8f05ad59f6f..275b91c41e83 100644
    nsresult rv = mDispatcher->BeginNativeInputTransaction();
    if (NS_FAILED(rv)) {
      NS_WARNING("BeginNativeInputTransaction is failed");
-@@ -205,34 +936,58 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
+@@ -205,34 +950,58 @@ static void InitKeyEvent(WidgetKeyboardEvent& aEvent, uint32_t aKeyCode,
  bool TextInputHandler::EmulateKeyboardEvent(uint32_t aKeyCode,
                                              KeyNameIndex aKeyNameIndex,
                                              char16_t aCharCode) {
